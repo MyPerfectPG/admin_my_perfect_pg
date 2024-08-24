@@ -1,5 +1,4 @@
 import 'dart:io';
-
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,322 +17,668 @@ class EditPGScreen extends StatefulWidget {
 
 class _EditPGScreenState extends State<EditPGScreen> {
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _billamtcontroller = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
   final TextEditingController _landmarkController = TextEditingController();
   final TextEditingController _timeController = TextEditingController();
   final TextEditingController _summaryController = TextEditingController();
-  final TextEditingController _priceController = TextEditingController();
   final TextEditingController _otherServiceController = TextEditingController();
-
+  final _picker = ImagePicker();
+  List<Map<String, dynamic>> sharingOptions=[];
+  List<TextEditingController> vacantBedsControllers = [];
+  List<TextEditingController> priceControllers = [];
+  final Map<int, TextEditingController> _vacantBedsControllers = {};
   String _gender = 'Both';
-  String _sharing = 'Single';
-  String _fooding = 'Not Included';
   String _elecbill = 'Not Included';
-  String _foodtype = 'Both';
-  String _furnishing = 'Unfurnished';
-  String _ac = 'Not Available';
   String _cctv = 'Not Available';
   String _wifi = 'Not Available';
   String _parking = 'Not Available';
   String _laundary = 'Not Available';
   String _profession = 'Student';
-  List<String> _imageUrls = [];
+  List<String> thumbnailimageUrls = [];
   List<File> _newImages = [];
+  List<String> _selectedFooding = [];
+  List<String> _selectedFoodType = [];
+  List<String> _selectedAC = [];
+  List<String> _imageUrls = [];
 
   @override
   void initState() {
     super.initState();
     _loadPGDetails();
   }
+  Widget _buildCheckboxList(
+      String title, List<String> options, List<String> selectedOptions) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        SizedBox(height: 2),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          itemCount: options.length,
+          itemBuilder: (context, index) {
+            String option = options[index];
+            return Container(
+              margin: EdgeInsets.only(bottom: 2.0),
+              child: CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(option, style: TextStyle(fontSize: 16)),
+                value: selectedOptions.contains(option),
+                onChanged: (bool? value) {
+                  setState(() {
+                    if (value == true) {
+                      selectedOptions.add(option);
+                    } else {
+                      selectedOptions.remove(option);
+                    }
+                  });
+                },
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            );
+          },
+        ),
+        SizedBox(height: 2),
+      ],
+    );
+  }
 
   Future<void> _loadPGDetails() async {
-    DocumentSnapshot doc = await FirebaseFirestore.instance.collection('pgs').doc(widget.pgId).get();
+    DocumentSnapshot doc = await FirebaseFirestore.instance
+        .collection('pgs')
+        .doc(widget.pgId)
+        .get();
     setState(() {
       _nameController.text = doc['name'];
       _locationController.text = doc['location'];
       _landmarkController.text = doc['landmark'];
-      _priceController.text = doc['price'].toString();
       _timeController.text = doc['time'];
       _summaryController.text = doc['summary'];
       _otherServiceController.text = doc['otherService'];
+      _billamtcontroller.text = doc['billAmount'];
       _gender = doc['gender'];
-      _sharing = doc['sharing'];
-      _fooding = doc['fooding'];
       _elecbill = doc['elecbill'];
-      _foodtype = doc['foodtype'];
-      _furnishing = doc['furnishing'];
-      _ac = doc['ac'];
       _cctv = doc['cctv'];
+      sharingOptions = List<Map<String, dynamic>>.from(doc['sharing_details']);
+      _selectedFooding=List<String>.from(doc['fooding']);
+      _selectedAC=List<String>.from(doc['ac']);
+      _selectedFoodType=List<String>.from(doc['foodtype']);
       _wifi = doc['wifi'];
       _parking = doc['parking'];
       _laundary = doc['laundary'];
       _profession = doc['profession'];
-      _imageUrls = List<String>.from(doc['images']);
+      thumbnailimageUrls = List<String>.from(doc['thumbnail']);
+      _imageUrls = List<String>.from(sharingOptions[0]['images']);
+      vacantBedsControllers = sharingOptions.map((option) {
+        return TextEditingController(text: option['vacantBeds']);
+      }).toList();
+      priceControllers = sharingOptions.map((option) {
+        return TextEditingController(text: option['price']);
+      }).toList();
     });
   }
 
-  Future<List<String>> uploadMultipleImages() async {
+  @override
+  void dispose() {
+    vacantBedsControllers.forEach((controller) => controller.dispose());
+    priceControllers.forEach((controller) => controller.dispose());
+    super.dispose();
+  }
+
+
+  Future<void> _addImage(int index) async {
     final picker = ImagePicker();
-    final List<XFile>? images = await picker.pickMultiImage();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
-    if (images == null || images.isEmpty) {
-      print('No images selected.');
-      // return;
+    if (pickedFile != null) {
+      File imageFile = File(pickedFile.path);
+
+      // Upload to Firebase Storage
+      String fileName = DateTime.now().millisecondsSinceEpoch.toString();
+      Reference firebaseStorageRef = FirebaseStorage.instance.ref().child('pg_images/$fileName');
+      UploadTask uploadTask = firebaseStorageRef.putFile(imageFile);
+      TaskSnapshot taskSnapshot = await uploadTask;
+      String downloadUrl = await taskSnapshot.ref.getDownloadURL();
+
+      setState(() {
+        sharingOptions[index]['images'].add(downloadUrl);
+      });
+
+      // Update Firestore
+      await FirebaseFirestore.instance.collection('pgs').doc(widget.pgId).update({
+        'sharing_details': sharingOptions,
+      });
     }
+  }
 
+  Future<void> _deleteImage(int sharingIndex, int imageIndex) async {
+    setState(() {
+      sharingOptions[sharingIndex]['images'].removeAt(imageIndex);
+    });
 
+    // Update Firestore
+    await FirebaseFirestore.instance.collection('pgs').doc(widget.pgId).update({
+      'sharing_details': sharingOptions,
+    });
+  }
 
-    for (XFile image in images!) {
-      File imageFile = File(image.path);
+  Future<String> _uploadSingleImage(File image) async {
+    String fileName =
+        'images/${DateTime.now().millisecondsSinceEpoch}_${image.path.split('/').last}';
+    Reference storageRef = FirebaseStorage.instance.ref().child(fileName);
+    UploadTask uploadTask = storageRef.putFile(image);
+    TaskSnapshot snapshot = await uploadTask;
+    return await snapshot.ref.getDownloadURL();
+  }
 
+  Future<void> _replaceImage(int index) async {
+    final picker = ImagePicker();
+    final XFile? newImage = await picker.pickImage(source: ImageSource.gallery);
+
+    if (newImage != null) {
+      File newImageFile = File(newImage.path);
       try {
-        // Create a unique file name for each image
-        String fileName = 'images/${DateTime.now().millisecondsSinceEpoch}_${image.name}';
+        // Upload the new image
+        String newImageUrl = await _uploadSingleImage(newImageFile);
 
-        // Upload the image to Firebase Storage
-        TaskSnapshot snapshot = await FirebaseStorage.instance
-            .ref(fileName)
-            .putFile(imageFile);
+        // Replace the old image URL with the new one
+        setState(() {
+          thumbnailimageUrls[index] = newImageUrl;
+        });
 
-        // Get the download URL of the uploaded image
-        String downloadUrl = await snapshot.ref.getDownloadURL();
-
-        // Store the download URL in a list
-        _imageUrls.add(downloadUrl);
+        // Update Firestore
+        await FirebaseFirestore.instance
+            .collection('pgs')
+            .doc(widget.pgId)
+            .update({'thumbnail': thumbnailimageUrls});
       } catch (e) {
-        print('Error uploading image: $e');
+        print('Error replacing image: $e');
       }
     }
-    return _imageUrls;
-    // Store the list of image URLs in Firestore
-    await FirebaseFirestore.instance.collection('pg_owners').add({
-      'imageUrls': _imageUrls,
-      'timestamp': FieldValue.serverTimestamp(),
-    });
-
-    print('Images uploaded successfully!');
   }
 
-  Future<List<String>> _uploadImages(List<File> images) async {
-    List<String> downloadUrls = [];
-    for (File image in images) {
-      String fileName = image.path.split('/').last;
-      Reference storageRef = FirebaseStorage.instance.ref().child('pg_images/$fileName');
-      UploadTask uploadTask = storageRef.putFile(image as File);
-      TaskSnapshot snapshot = await uploadTask;
-      String downloadUrl = await snapshot.ref.getDownloadURL();
-      downloadUrls.add(downloadUrl);
-    }
-    return downloadUrls;
-  }
 
   Future<void> _updatePG() async {
     try {
-      List<String> newImageUrls = await _uploadImages(_newImages);
-      List<String> finalImageUrls = _imageUrls + newImageUrls;
-      await FirebaseFirestore.instance.collection('pgs')
+      await FirebaseFirestore.instance
+          .collection('pgs')
           .doc(widget.pgId)
           .update({
-        'images': finalImageUrls,
+        'thumbnail': thumbnailimageUrls,
         'name': _nameController.text.trim(),
         'landmark': _landmarkController.text.trim(),
         'time': _timeController.text.trim(),
         'otherService': _otherServiceController.text.trim(),
         'location': _locationController.text.trim(),
         'summary': _summaryController.text.trim(),
-        'price': int.parse(_priceController.text.trim()),
         'gender': _gender,
-        'sharing': _sharing,
-        'fooding': _fooding,
         'elecbill': _elecbill,
-        'foodtype': _foodtype,
-        'furnishing': _furnishing,
-        'ac': _ac,
+        'billAmount':
+        _elecbill == 'Included' ? _billamtcontroller.text.trim() : "",
         'cctv': _cctv,
         'wifi': _wifi,
+        'ac': _selectedAC,
+        'foodtype': _selectedFoodType,
+        'sharing_details':sharingOptions,
+        'fooding': _selectedFooding,
         'parking': _parking,
         'laundary': _laundary,
         'profession': _profession,
       });
       Navigator.pop(context);
-    }catch (e) {
+    } catch (e) {
       print('Failed to update PG: $e');
     }
   }
+  Future<void> uploadMultipleImage(int index) async {
+    final List<XFile>? pickedImages = await _picker.pickMultiImage();
 
-  Future<void> _deleteImage(String imageUrl) async {
-    setState(() {
-      _imageUrls.remove(imageUrl);
-    });
-    try {
-      Reference storageRef = FirebaseStorage.instance.refFromURL(imageUrl);
-      await storageRef.delete();
-    } catch (e) {
-      print('Failed to delete image: $e');
+    if (pickedImages != null) {
+      List<String> imageUrls = [];
+
+      // Loop through each selected image
+      for (var image in pickedImages) {
+        // Create a reference to the Firebase Storage location
+        Reference storageReference = FirebaseStorage.instance
+            .ref()
+            .child('images/${DateTime.now().millisecondsSinceEpoch}_${image.name}');
+
+        // Upload the file to Firebase Storage
+        UploadTask uploadTask = storageReference.putFile(File(image.path));
+
+        // Wait for the upload to complete
+        TaskSnapshot taskSnapshot = await uploadTask;
+
+        // Get the download URL of the uploaded image
+        String imageUrl = await taskSnapshot.ref.getDownloadURL();
+
+        // Add the download URL to the list
+        imageUrls.add(imageUrl);
+      }
+
+      // Update the state with the URLs
+      setState(() {
+        sharingOptions[index]['images'].add(imageUrls);
+      });
+
+      // Optionally: save imageUrls to Firestore
+      // await FirebaseFirestore.instance
+      //     .collection('your_collection_name')
+      //     .doc('your_document_id')
+      //     .update({
+      //   'sharingOptions.$index.images': imageUrls,
+      // });
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Edit PG',style: const TextStyle(
-          color: Colors.white, fontWeight: FontWeight.bold, fontSize: 30),),
-        backgroundColor: Color(0xff0094FF),),
+      appBar: AppBar(
+        title: Text(
+          'Edit PG',
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 30),
+        ),
+        backgroundColor: Color(0xff0094FF),
+      ),
       backgroundColor: Color(0xffF7F7F7),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: SingleChildScrollView(
           child: Column(
             children: [
-              SizedBox(height: 20,),
-              Uploadimage(context, "Pick New Images", uploadMultipleImages),
+              /*SizedBox(height: 20,),
+              Uploadimage(context, "Pick New Images", uploadMultipleImages),*/
               SizedBox(height: 10),
-              Text('Current Images:', style: TextStyle(fontSize: 16)),
+              Text('Current Thumbnail:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              //
               Wrap(
-                children: _imageUrls.map((imageUrl) {
+                children: thumbnailimageUrls.map((imageUrl) {
+                  int index = thumbnailimageUrls.indexOf(imageUrl);
                   return Stack(
                     children: [
-                      Image.network(imageUrl, width: 100, height: 100, fit: BoxFit.cover),
-                      Positioned(
+                      Image.network(
+                        imageUrl,
+                        width: 100,
+                        height: 100,
+                        fit: BoxFit.cover,
+                        errorBuilder: (BuildContext context, Object exception,
+                            StackTrace? stackTrace) {
+                          return Image.asset(
+                            'assets/images/manage_pg.jpg',
+                            width: 100,
+                            height: 100,
+                            fit: BoxFit.cover,
+                          );
+                        },
+                        loadingBuilder: (BuildContext context, Widget child,
+                            ImageChunkEvent? loadingProgress) {
+                          if (loadingProgress == null) {
+                            return child;
+                          } else {
+                            return Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes !=
+                                    null
+                                    ? loadingProgress.cumulativeBytesLoaded /
+                                    (loadingProgress.expectedTotalBytes ??
+                                        1)
+                                    : null,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      /*Positioned(
                         right: 0,
                         child: IconButton(
                           icon: Icon(Icons.delete, color: Colors.red),
                           onPressed: () => _deleteImage(imageUrl),
+                        ),
+                      ),*/
+                      Positioned(
+                        left: 0,
+                        child: IconButton(
+                          icon: Icon(Icons.edit_rounded, color: Colors.blue),
+                          onPressed: () => _replaceImage(index),
                         ),
                       ),
                     ],
                   );
                 }).toList(),
               ),
-              SizedBox(height: 20,),
-              DataTextField('PG Name', Icons.home_outlined, false, _nameController),
-              SizedBox(height: 10,),
-              DataTextField('Location', Icons.location_city_outlined, false, _locationController),
-              SizedBox(height: 10,),
-              DataTextField('Landmark', Icons.pin_drop_outlined, false, _landmarkController),
-              SizedBox(height: 10,),
-              DataTextField('Time', Icons.timelapse_outlined, false, _timeController),
-              SizedBox(height: 10,),
-              DataTextField('Summary', Icons.summarize_outlined, false, _summaryController),
-              SizedBox(height: 10,),
-              DataTextField('Other Services', Icons.home_repair_service_outlined, false, _otherServiceController),
-              SizedBox(height: 10,),
-              DataTextField('Price', Icons.currency_rupee_outlined, false, _priceController),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _gender,items: <String>['Boys', 'Girls', 'Both']
-                  .map<DropdownMenuItem<String>>((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value,),
-                );
-              }).toList(), onChanged: (String? newValue) {
-                setState(() {
-                  _gender = newValue!;
-                });
-              },decoration: InputDecoration(
-                hintText: "Gender",
-                filled: true,
-                fillColor: Color(0xffF7F7F7),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-              ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _sharing,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _sharing = newValue!;
-                  });
-                },
-                items: <String>['Single', 'Double', 'Triple']
+              SizedBox(
+                height: 20,
+              ),
+              DataTextField(
+                  'PG Name', Icons.home_outlined, false, _nameController),
+              SizedBox(
+                height: 10,
+              ),
+              DataTextField('Location', Icons.location_city_outlined, false,
+                  _locationController),
+              SizedBox(
+                height: 10,
+              ),
+              DataTextField('Landmark', Icons.pin_drop_outlined, false,
+                  _landmarkController),
+              SizedBox(
+                height: 10,
+              ),
+              DataTextField(
+                  'Time', Icons.timelapse_outlined, false, _timeController),
+              SizedBox(
+                height: 10,
+              ),
+              DataTextField('Summary', Icons.summarize_outlined, false,
+                  _summaryController),
+              SizedBox(
+                height: 10,
+              ),
+              DataTextField(
+                  'Other Services',
+                  Icons.home_repair_service_outlined,
+                  false,
+                  _otherServiceController),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Gender',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _gender,
+                items: <String>['Boys', 'Girls', 'Both']
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "Sharing",
-                  filled: true,
-                  fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _fooding,
+                }).toList(),
                 onChanged: (String? newValue) {
                   setState(() {
-                    _fooding = newValue!;
+                    _gender = newValue!;
                   });
                 },
-                items: <String>['Included', 'Not Included']
-                    .map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value,),
-                  );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "Fooding",
+                decoration: InputDecoration(
+                  hintText: "Gender",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _foodtype,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _foodtype = newValue!;
-                  });
-                },
-                items: <String>['Veg', 'Non-Veg','No','Both']
-                    .map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value,),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(height: 10),
+              ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Sharing Options',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+                ...sharingOptions.map((option) {
+                  int index = sharingOptions.indexOf(option);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CheckboxListTile(
+                        title: Text(
+                          option['title'],
+                          style: TextStyle(
+                            /*fontWeight: FontWeight.bold,*/
+                            fontSize: 18,
+                          ),
+                        ),
+                        value: option['selected'],
+                        onChanged: (bool? value) {
+                          setState(() {
+                            option['selected'] = value!;
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      if (option['selected'])
+                        Padding(
+                          padding:
+                          const EdgeInsets.only(left: 40.0, bottom: 16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Stack(
+                                children: [
+                                  TextField(
+                                    decoration: InputDecoration(
+                                      labelText: 'Number of Vacant Beds',
+                                      labelStyle: TextStyle(fontSize: 16),
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 16, vertical: 8),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      suffixIcon: IconButton(
+                                        icon: Icon(Icons.add),
+                                        onPressed: () {
+                                          setState(() {
+                                            int currentValue = int.tryParse(
+                                                option['vacantBeds'] ??
+                                                    '0') ??
+                                                0;
+                                            option['vacantBeds'] =
+                                                (currentValue + 1).toString();
+                                          });
+                                        },
+                                      ),
+                                      prefixIcon: IconButton(
+                                        icon: Icon(Icons.remove),
+                                        onPressed: () {
+                                          setState(() {
+                                            int currentValue = int.tryParse(
+                                                option['vacantBeds'] ??
+                                                    '0') ??
+                                                0;
+                                            if (currentValue > 0) {
+                                              option['vacantBeds'] =
+                                                  (currentValue - 1).toString();
+                                            }
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    textAlign: TextAlign.center,
+                                    controller: TextEditingController(
+                                        text: option['vacantBeds']),
+                                    onChanged: (value) {
+                                      setState(() {
+                                        option['vacantBeds'] = value;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 16),
+                              TextField(
+                                decoration: InputDecoration(
+                                  labelText: 'Price',
+                                  labelStyle: TextStyle(fontSize: 16),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                controller: TextEditingController(
+                                    text: option['price'] ?? ''),
+                                onChanged: (value) {
+                                  setState(() {
+                                    option['price'] = value;
+                                  });
+                                },
+                              ),
+                              SizedBox(height: 3),
+
+                              // Text(
+                              //   'Furnishing',
+                              //   style: TextStyle(
+                              //     fontWeight: FontWeight.bold,
+                              //     fontSize: 18,
+                              //   ),
+                              // ),
+                              Column(
+                                children: [
+                                  RadioListTile<String>(
+                                    title: Text('Unfurnished'),
+                                    value: 'Unfurnished',
+                                    groupValue: option['furnishing'],
+                                    onChanged: (String? value) {
+                                      setState(() {
+                                        option['furnishing'] = value;
+                                      });
+                                    },
+                                  ),
+                                  RadioListTile<String>(
+                                    title: Text('Semi-Furnished'),
+                                    value: 'Semi-Furnished',
+                                    groupValue: option['furnishing'],
+                                    onChanged: (String? value) {
+                                      setState(() {
+                                        option['furnishing'] = value;
+                                      });
+                                    },
+                                  ),
+                                  RadioListTile<String>(
+                                    title: Text('Furnished'),
+                                    value: 'Furnished',
+                                    groupValue: option['furnishing'],
+                                    onChanged: (String? value) {
+                                      setState(() {
+                                        option['furnishing'] = value;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 3),
+                              GridView.builder(
+                                shrinkWrap: true,
+                                itemCount: sharingOptions[index]['images'].length,
+                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3),
+                                itemBuilder: (context, imageIndex) {
+                                  return Stack(
+                                    children: [
+                                      Image.network(sharingOptions[index]['images'][imageIndex]),
+                                      Positioned(
+                                        right: 0,
+                                        child: IconButton(
+                                          icon: Icon(Icons.delete_outline_rounded,color: Colors.red,),
+                                          onPressed: () => _deleteImage(index, imageIndex),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                              SizedBox(height: 8.0),
+                              ElevatedButton(
+                                onPressed: () => _addImage(index),
+                                child: Text('Add Image'),
+                                style: ButtonStyle(
+                                    foregroundColor:
+                                    MaterialStateProperty.resolveWith((states) {
+                                      if (states.contains(MaterialState.pressed)) {
+                                        return Colors.white;
+                                      }
+                                      return Color(0xff0094FF);
+                                    }),
+                                    backgroundColor:
+                                    MaterialStateProperty.resolveWith((states) {
+                                      if (states.contains(MaterialState.pressed)) {
+                                        return Color(0xff0094FF);
+                                      }
+                                      return Colors.white;
+                                    }),
+                                    shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                                        RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(30),
+                                          side: BorderSide(color: Color(0xff0094FF)),
+                                        ))),
+                              ),
+                              /*SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                onPressed: () => _pickThumbnailImage(index),
+                                icon: Icon(Icons.upload),
+                                label: Text('Upload Thumbnail Image'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Color(0xff0094FF),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: 20, vertical: 10),
+                                ),
+                              ),*/
+                            ],
+                          ),
+                        ),
+                    ],
                   );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "Food Type",
-                  filled: true,
-                  fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _ac,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _ac = newValue!;
-                  });
-                },
-                items: <String>['Available', 'Not Available']
-                    .map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value,),
-                  );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "AC",
-                  filled: true,
-                  fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _furnishing,
-                onChanged: (String? newValue) {
-                  setState(() {
-                    _furnishing = newValue!;
-                  });
-                },
-                items: <String>['Unfurnished', 'Semi-Furnished','Furnished']
-                    .map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value,),
-                  );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "Furnishing",
-                  filled: true,
-                  fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _cctv,
+                }).toList(),
+              ],
+              SizedBox(height: 10),
+              _buildCheckboxList(
+                  'Fooding', ['Included', 'Not Included'], _selectedFooding),
+              _buildCheckboxList(
+                  'Food Type', ['Veg', 'Non-Veg'], _selectedFoodType),
+              _buildCheckboxList(
+                  'AC', ['Available', 'Not Available'], _selectedAC),
+              SizedBox(height: 10),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'CCTV',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _cctv,
                 onChanged: (String? newValue) {
                   setState(() {
                     _cctv = newValue!;
@@ -343,16 +688,38 @@ class _EditPGScreenState extends State<EditPGScreen> {
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
+                }).toList(),
+                decoration: InputDecoration(
                   hintText: "CCTV",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _wifi,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Wifi',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _wifi,
                 onChanged: (String? newValue) {
                   setState(() {
                     _wifi = newValue!;
@@ -362,35 +729,79 @@ class _EditPGScreenState extends State<EditPGScreen> {
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
-                  hintText: "Wifi",
+                }).toList(),
+                decoration: InputDecoration(
+                  hintText: "WIFI",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _parking,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Parking',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _parking,
                 onChanged: (String? newValue) {
                   setState(() {
                     _parking = newValue!;
                   });
                 },
-                items: <String>['Available','Not Available']
+                items: <String>['Available', 'Not Available']
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
+                }).toList(),
+                decoration: InputDecoration(
                   hintText: "Parking",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _laundary,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Laundary',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _laundary,
                 onChanged: (String? newValue) {
                   setState(() {
                     _laundary = newValue!;
@@ -400,52 +811,150 @@ class _EditPGScreenState extends State<EditPGScreen> {
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
+                }).toList(),
+                decoration: InputDecoration(
                   hintText: "Laundary",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
-              DropdownButtonFormField(value: _profession,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Electricity Bill',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              // DropdownButtonFormField(value: _elecbill,
+              //   onChanged: (String? newValue) {
+              //     setState(() {
+              //       _elecbill = newValue!;
+              //     });
+              //   },
+              //   items: <String>['Included', 'Not Included']
+              //       .map<DropdownMenuItem<String>>((String value) {
+              //     return DropdownMenuItem<String>(
+              //       value: value,
+              //       child: Text(value,),
+              //     );
+              //   }).toList(), decoration: InputDecoration(
+              //     hintText: "Electricity Bill",
+              //     filled: true,
+              //     fillColor: Color(0xffF7F7F7),
+              //     border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
+              //   ),),
+              ListTile(
+                  title: const Text('Not Included'),
+                  leading: Radio<String>(
+                    value: 'Not Included',
+                    groupValue: _elecbill,
+                    onChanged: (String? value) {
+                      setState(() {
+                        _elecbill = value!;
+                      });
+                    },
+                  )),
+              ListTile(
+                  title: const Text('Included'),
+                  leading: Radio<String>(
+                    value: 'Included',
+                    groupValue: _elecbill,
+                    onChanged: (String? value) {
+                      setState(() {
+                        _elecbill = value!;
+                      });
+                    },
+                  )),
+              if (_elecbill == 'Not Included')
+                DataTextField(
+                  _billamtcontroller.text,
+                  Icons.money,
+                  false,
+                  _billamtcontroller,
+                ),
+              SizedBox(
+                height: 10,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Profession',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 5,
+              ),
+              DropdownButtonFormField(
+                value: _profession,
                 onChanged: (String? newValue) {
                   setState(() {
                     _profession = newValue!;
                   });
                 },
-                items: <String>['Student', 'Working Profession','Both']
+                items: <String>['Student', 'Professional', 'Both']
                     .map<DropdownMenuItem<String>>((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
-                    child: Text(value,),
+                    child: Text(
+                      value,
+                    ),
                   );
-                }).toList(),decoration: InputDecoration(
+                }).toList(),
+                decoration: InputDecoration(
                   hintText: "Profession",
                   filled: true,
                   fillColor: Color(0xffF7F7F7),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(30),),
-                ),),
-              SizedBox(height: 10,),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 10,
+              ),
               ElevatedButton(
                 onPressed: _updatePG,
                 child: Text('Update PG'),
                 style: ButtonStyle(
-                    foregroundColor: MaterialStateProperty.resolveWith((states) {
+                    foregroundColor:
+                    MaterialStateProperty.resolveWith((states) {
                       if (states.contains(MaterialState.pressed)) {
                         return Colors.white;
                       }
                       return Color(0xff0094FF);
                     }),
-                    backgroundColor: MaterialStateProperty.resolveWith((states) {
+                    backgroundColor:
+                    MaterialStateProperty.resolveWith((states) {
                       if (states.contains(MaterialState.pressed)) {
                         return Color(0xff0094FF);
                       }
                       return Colors.white;
                     }),
                     shape: MaterialStateProperty.all<RoundedRectangleBorder>(
-                        RoundedRectangleBorder(borderRadius: BorderRadius.circular(30),side:  BorderSide(color: Color(0xff0094FF)),))),
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          side: BorderSide(color: Color(0xff0094FF)),
+                        ))),
               ),
             ],
           ),
