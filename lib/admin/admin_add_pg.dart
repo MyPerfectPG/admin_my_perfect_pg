@@ -27,6 +27,7 @@ class _AddPGScreenAdminState extends State<AddPGScreenAdmin> {
   final _storage = FirebaseStorage.instance;
   final _picker = ImagePicker();
 
+  List<String> OtherimagesUrls=[];
   String _gender = 'Both';
   /*String _fooding = 'Not Included';*/
   String _elecbill = 'Included';
@@ -149,12 +150,12 @@ class _AddPGScreenAdminState extends State<AddPGScreenAdmin> {
         String downloadUrl = await snapshot.ref.getDownloadURL();
 
         // Store the download URL in a list
-        imageUrls.add(downloadUrl);
+        OtherimagesUrls.add(downloadUrl);
       } catch (e) {
         print('Error uploading image: $e');
       }
     }
-    return imageUrls;
+    return OtherimagesUrls;
     // Store the list of image URLs in Firestore
     await FirebaseFirestore.instance.collection('pg_owners').add({
       'imageUrls': imageUrls,
@@ -309,6 +310,7 @@ class _AddPGScreenAdminState extends State<AddPGScreenAdmin> {
         'sharing_details':sharingOptions,
         'ac': _selectedAC,
         'cctv': _cctv,
+        'other_pics': OtherimagesUrls,
         'wifi': _wifi,
         'parking': _parking,
         'laundary': _laundary,
@@ -614,6 +616,42 @@ class _AddPGScreenAdminState extends State<AddPGScreenAdmin> {
                   );
                 }).toList(),
               ],
+              SizedBox(height: 10,),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Other Pictures',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              SizedBox(height: 5,),
+              ElevatedButton(
+                onPressed: () => uploadMultipleImages(),
+                child: Text('Upload Image'),
+                style: ButtonStyle(
+                    foregroundColor:
+                    MaterialStateProperty.resolveWith((states) {
+                      if (states.contains(MaterialState.pressed)) {
+                        return Colors.white;
+                      }
+                      return Color(0xff0094FF);
+                    }),
+                    backgroundColor:
+                    MaterialStateProperty.resolveWith((states) {
+                      if (states.contains(MaterialState.pressed)) {
+                        return Color(0xff0094FF);
+                      }
+                      return Colors.white;
+                    }),
+                    shape: MaterialStateProperty.all<RoundedRectangleBorder>(
+                        RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          side: BorderSide(color: Color(0xff0094FF)),
+                        ))),
+              ),
               SizedBox(height: 10),
               _buildCheckboxList(
                   'Fooding', ['Included', 'Not Included'], _selectedFooding),
